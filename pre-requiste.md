@@ -1,0 +1,12 @@
+  langchain>=0.1.0
+  langchain-community>=0.0.10
+  langchain-openai>=0.0.2
+  langchain-ollama>=0.1.0
+  langchain-text-splitters>=0.0.1
+  faiss-cpu>=1.7.4
+  streamlit>=1.30.0
+  python-dotenv>=1.0.0
+  pypdf>=4.0.0
+  beautifulsoup4>=4.12.0
+  requests>=2.31.0
+  sentence-transformers>=2.2.2
