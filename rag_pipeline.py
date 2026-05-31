@@ -9,6 +9,8 @@ Dynamic RAG Pipeline Script
 
 import os
 import sys
+import json
+import re
 from typing import List, Dict, Any
 
 # Fix for Windows console encoding issues with emojis
@@ -281,6 +283,49 @@ class RAGPipeline:
             deduped.append(doc)
         return deduped
 
+    @staticmethod
+    def _parse_json_object(text: str) -> Dict[str, Any]:
+        """Parse a JSON object from an LLM response."""
+        cleaned = str(text).strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`").strip()
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+            if not match:
+                raise
+            return json.loads(match.group(0))
+
+    @staticmethod
+    def _normalize_agent_decision(parsed: Dict[str, Any]) -> Dict[str, Any]:
+        decision = parsed.get("decision") or {}
+        issue_type = str(decision.get("issue_type", "general")).lower()
+        if issue_type not in {"refund", "return", "replacement", "warranty", "technical", "delivery", "billing", "general"}:
+            issue_type = "general"
+        if issue_type == "return":
+            issue_type = "refund"
+
+        priority = str(decision.get("priority", "Low")).title()
+        if priority not in {"Low", "Medium", "High"}:
+            priority = "Low"
+
+        next_action = str(decision.get("next_action", "answer_only")).lower()
+        if next_action not in {"answer_only", "ask_confirmation", "ask_image", "create_ticket", "escalate"}:
+            next_action = "answer_only"
+
+        return {
+            "should_offer_complaint": bool(decision.get("should_offer_complaint", False)),
+            "issue_type": issue_type,
+            "priority": priority,
+            "requires_image": bool(decision.get("requires_image", False)),
+            "next_action": next_action,
+            "reason": str(decision.get("reason", "")),
+        }
+
     # ---------------- Query ---------------- #
     def query(self, question: str, top_k: int = 5, system_prompt: str = None) -> Dict[str, Any]:
         """Query the RAG pipeline and return answer with sources"""
@@ -314,6 +359,31 @@ class RAGPipeline:
                         "'eligible for review', not final approval. If the next action is escalation "
                         "or complaint creation for technical support, say that technical support will "
                         "contact the customer within 4 working days.\n\n"
+                        "Do not offer complaint ticket creation only because warranty is active. "
+                        "If the customer only asks about warranty status, policy, delivery age, or general "
+                        "eligibility without reporting an issue or requesting an action, set "
+                        "should_offer_complaint to false and next_action to answer_only.\n\n"
+                        "When the customer is eligible or eligible for review and the system can create "
+                        "a complaint ticket, do not tell the customer to contact support through email, "
+                        "live chat, or phone. Instead, explain the eligibility and set "
+                        "should_offer_complaint to true so the application can ask for ticket creation.\n\n"
+                        "Return only valid JSON with this exact schema:\n"
+                        "{{\n"
+                        '  "answer": "customer-facing answer",\n'
+                        '  "decision": {{\n'
+                        '    "should_offer_complaint": true,\n'
+                        '    "issue_type": "refund|replacement|warranty|technical|delivery|billing|general",\n'
+                        '    "priority": "Low|Medium|High",\n'
+                        '    "requires_image": true,\n'
+                        '    "next_action": "answer_only|ask_confirmation|ask_image|create_ticket|escalate",\n'
+                        '    "reason": "short internal reason"\n'
+                        "  }}\n"
+                        "}}\n"
+                        "Set should_offer_complaint true when the customer is eligible, eligible for review, "
+                        "or should be escalated for a support case. Set it false when the answer is only "
+                        "informational or the customer is clearly not eligible. Set requires_image true for "
+                        "refund, replacement, warranty, technical, and delivery damage cases when product "
+                        "condition or proof is relevant.\n\n"
                     )
                 prompt = PromptTemplate(
                     input_variables=["context", "question"],
@@ -333,6 +403,14 @@ class RAGPipeline:
                 rendered_prompt = prompt.format(context=context, question=question)
                 llm_response = self.llm.invoke(rendered_prompt)
                 answer_text = getattr(llm_response, "content", llm_response)
+                agent_decision = None
+                if "customer care agent" in system_prompt.lower():
+                    try:
+                        parsed = self._parse_json_object(answer_text)
+                        agent_decision = self._normalize_agent_decision(parsed)
+                        answer_text = parsed.get("answer", answer_text)
+                    except Exception:
+                        agent_decision = None
 
             else:
                 retriever = self.db.as_retriever(search_kwargs={"k": max(top_k, 8)})
@@ -351,6 +429,7 @@ class RAGPipeline:
             return {
                 "question": question,
                 "answer": answer_text if answer_text else "No answer generated. Please try again.",
+                "agent_decision": agent_decision if system_prompt else None,
                 "sources": [
                     {"content": doc.page_content, "metadata": doc.metadata}
                     for doc in source_docs

@@ -1,0 +1,277 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>LexiFlow Customer Care Business Rules</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: #111827;
+      line-height: 1.45;
+      margin: 42px;
+      font-size: 13px;
+    }
+    h1 {
+      font-size: 26px;
+      margin-bottom: 4px;
+    }
+    h2 {
+      font-size: 18px;
+      margin-top: 26px;
+      border-bottom: 1px solid #d1d5db;
+      padding-bottom: 4px;
+    }
+    h3 {
+      font-size: 15px;
+      margin-top: 18px;
+    }
+    .subtitle {
+      color: #4b5563;
+      margin-bottom: 24px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px;
+    }
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f3f4f6;
+    }
+    .note {
+      background: #f9fafb;
+      border-left: 4px solid #2563eb;
+      padding: 10px 12px;
+      margin: 14px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>LexiFlow Customer Care Business Rules</h1>
+  <div class="subtitle">Sample policy document for RAG, customer care workflow, ticket creation, and image inspection demos.</div>
+
+  <h2>1. Purpose</h2>
+  <p>
+    This document defines customer care rules for refund, replacement, warranty,
+    technical support, escalation, image proof, and complaint ticket creation.
+    LexiFlow should use these rules to answer customer questions and decide the
+    correct next support action.
+  </p>
+
+  <div class="note">
+    When a customer is eligible or eligible for review, the LexiFlow Customer
+    Care Agent should offer to create a complaint ticket after customer
+    confirmation. The agent should not simply tell the customer to contact
+    support separately when LexiFlow can create the ticket.
+  </div>
+
+  <h2>2. Refund Policy</h2>
+  <p>
+    Customers may request a refund within 14 calendar days of delivery if the
+    product is unused, undamaged, and returned with the original packaging.
+  </p>
+  <p>
+    If the customer is inside the 14 calendar day refund window, the customer
+    care agent should mark the case as eligible for review and offer to create
+    a complaint ticket.
+  </p>
+  <p>
+    If product condition is unknown, the customer care agent should request
+    product image proof before creating or finalizing the complaint ticket.
+  </p>
+  <p>
+    Refund approval is not automatic. Final approval is completed after support
+    review and warehouse inspection.
+  </p>
+  <p>
+    Refunds are not available after 14 calendar days of delivery unless an
+    exception is approved by a human support manager.
+  </p>
+
+  <h2>3. Replacement Policy</h2>
+  <p>
+    A replacement may be offered within 30 calendar days of delivery if the
+    product has a verified manufacturing defect.
+  </p>
+  <p>
+    If the customer is inside the 30 calendar day replacement window, the
+    customer care agent should mark the case as eligible for review and offer
+    to create a complaint ticket.
+  </p>
+  <p>
+    For replacement cases, the customer care agent should request product image
+    proof when physical condition, damage, or defect evidence is relevant.
+  </p>
+  <p>
+    Replacement approval is subject to support review, product serial number
+    validation, and defect verification.
+  </p>
+
+  <h2>4. Warranty Policy</h2>
+  <p>
+    Standard warranty covers manufacturing defects during the active warranty
+    period. Warranty does not cover misuse, accidental drops, unauthorized
+    repairs, liquid exposure, or normal wear and tear.
+  </p>
+  <p>
+    If the customer warranty is active and the issue may be covered, the
+    customer care agent should offer to create a complaint ticket for support
+    review.
+  </p>
+  <p>
+    Warranty claims may require proof of purchase, product serial number, and
+    product image proof.
+  </p>
+  <p>
+    Active warranty alone does not require complaint ticket creation. If the
+    customer only asks whether the warranty is active, what warranty covers, or
+    whether the order is still under warranty, the customer care agent should
+    answer the question and should not offer to create a complaint ticket unless
+    the customer also reports a product issue or asks to raise a claim.
+  </p>
+
+  <h2>5. Technical Support Policy</h2>
+  <p>
+    If a product is not working, not turning on, or has a functional issue, the
+    customer care agent should check the customer order, delivery age, warranty
+    status, and relevant troubleshooting policy.
+  </p>
+  <p>
+    If the product is inside the warranty or replacement window, the customer
+    care agent should offer to create a complaint ticket after customer
+    confirmation.
+  </p>
+  <p>
+    For technical complaints, the technical support team will contact the
+    customer within 4 working days.
+  </p>
+  <p>
+    The customer care agent should not promise immediate refund or replacement
+    for technical cases without support review.
+  </p>
+
+  <h2>6. Image Proof and Damage Inspection</h2>
+  <p>
+    Product image proof is required or recommended for refund, replacement,
+    warranty, technical, and delivery damage cases when product condition is
+    relevant.
+  </p>
+  <p>
+    LexiFlow should pass the uploaded product image to the Image Detection
+    Agent through the MCP damage inspection tool.
+  </p>
+  <p>
+    The Image Detection Agent should return inspection status, damage detected,
+    damage type, severity, confidence, human review requirement,
+    recommendation, image reference, and notes.
+  </p>
+  <p>
+    High severity damage, unclear images, or low confidence results should be
+    routed to human review.
+  </p>
+
+  <h2>7. Complaint Ticket Rules</h2>
+  <p>
+    The customer care agent should create a complaint ticket only after the
+    customer confirms that they want to proceed.
+  </p>
+  <p>
+    When the case requires image proof, the customer care agent should request
+    the image before creating the complaint ticket.
+  </p>
+  <p>
+    Complaint tickets should be created only for active customer issues, claims,
+    requests, or escalations. Do not create a complaint ticket for general policy
+    questions, warranty-status questions, delivery-age questions, or informational
+    questions when the customer has not reported a problem.
+  </p>
+  <p>
+    Ticket priority should be assigned as follows:
+  </p>
+  <table>
+    <tr><th>Issue Type</th><th>Priority</th><th>Reason</th></tr>
+    <tr><td>Technical</td><td>High</td><td>Functional issue may require specialist support.</td></tr>
+    <tr><td>Replacement</td><td>High</td><td>Product defect must be reviewed quickly.</td></tr>
+    <tr><td>Delivery damage</td><td>High</td><td>Damage during delivery requires urgent review.</td></tr>
+    <tr><td>Refund</td><td>Medium</td><td>Eligibility and product condition must be checked.</td></tr>
+    <tr><td>Warranty</td><td>Medium</td><td>Coverage and defect evidence must be verified.</td></tr>
+    <tr><td>Billing</td><td>Medium</td><td>Payment or invoice issue requires review.</td></tr>
+    <tr><td>General</td><td>Low</td><td>Informational or low urgency request.</td></tr>
+  </table>
+
+  <h2>8. Escalation Rules</h2>
+  <p>
+    The customer care agent should escalate to human support when:
+  </p>
+  <ul>
+    <li>The policy document does not provide enough information.</li>
+    <li>The customer is outside the standard refund or replacement window but requests an exception.</li>
+    <li>The image inspection result is inconclusive.</li>
+    <li>The image inspection result shows high severity damage.</li>
+    <li>The customer reports repeated failures or safety concerns.</li>
+    <li>The customer disputes a previous support decision.</li>
+  </ul>
+
+  <h2>9. Customer-Facing Response Rules</h2>
+  <p>
+    Customer responses should be polite, concise, and practical. Responses
+    should include customer name, order ID, delivery age, relevant policy
+    window, eligibility status, and next action when these details are
+    available.
+  </p>
+  <p>
+    The customer care agent should not invent policies, dates, approval status,
+    warranty terms, or refund promises.
+  </p>
+  <p>
+    If the customer is eligible or eligible for review, the next action should
+    be to offer complaint ticket creation inside LexiFlow.
+  </p>
+  <p>
+    If the customer is only asking for information and has not reported a
+    product problem, refund request, replacement request, warranty claim,
+    delivery issue, billing issue, or escalation request, the next action should
+    be answer_only and no complaint ticket should be offered.
+  </p>
+
+  <h2>10. Example Decisions</h2>
+  <table>
+    <tr><th>Scenario</th><th>Decision</th><th>Next Action</th></tr>
+    <tr>
+      <td>Customer delivered 4 days ago asks for refund.</td>
+      <td>Eligible for review.</td>
+      <td>Offer to create refund complaint ticket and request image proof if product condition is unknown.</td>
+    </tr>
+    <tr>
+      <td>Customer asks whether the warranty is active but does not report any product issue.</td>
+      <td>Informational answer only.</td>
+      <td>Do not offer complaint ticket creation.</td>
+    </tr>
+    <tr>
+      <td>Customer delivered 20 days ago asks for refund.</td>
+      <td>Not eligible under standard refund policy.</td>
+      <td>Explain 14 day refund window and escalate only if exception requested.</td>
+    </tr>
+    <tr>
+      <td>Customer delivered 20 days ago says product is not working.</td>
+      <td>Eligible for technical review.</td>
+      <td>Offer to create technical complaint ticket and request image proof if relevant.</td>
+    </tr>
+    <tr>
+      <td>Customer delivered 25 days ago asks for replacement due to defect.</td>
+      <td>Eligible for review.</td>
+      <td>Offer to create replacement ticket and request image proof.</td>
+    </tr>
+    <tr>
+      <td>Image inspection detects high severity damage.</td>
+      <td>Human review required.</td>
+      <td>Create complaint ticket only after confirmation and route for manual review.</td>
+    </tr>
+  </table>
+</body>
+</html>

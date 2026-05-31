@@ -245,20 +245,35 @@ def ask_question(question: str, top_k: int, assistant_mode: str) -> None:
         system_prompt=active_system_prompt(assistant_mode),
     )
     answer = response.get("answer", "")
+    agent_decision = response.get("agent_decision") or {}
 
-    if should_offer_complaint(answer, assistant_mode):
-        issue_type = infer_issue_type(question + " " + answer)
-        priority = priority_for_issue(issue_type)
-        st.session_state.pending_complaint = {
-            "issue_type": issue_type,
-            "priority": priority,
-            "summary": build_complaint_summary(question.strip(), answer, st.session_state.selected_case),
-        }
-        st.session_state.awaiting_image_for_pending = False
-        answer = (
-            f"{answer}\n\n"
-            "Would you like me to create a complaint ticket for this case?"
-        )
+    actionable_question = question_requests_support_action(question)
+    fallback_offer = actionable_question and should_offer_complaint(answer, assistant_mode)
+    should_offer = bool(agent_decision.get("should_offer_complaint")) or fallback_offer
+    if not actionable_question:
+        should_offer = False
+
+    if should_offer:
+        issue_type = agent_decision.get("issue_type")
+        if not issue_type or issue_type == "general" or fallback_offer:
+            issue_type = infer_issue_type(question + " " + answer)
+        priority = agent_decision.get("priority") or priority_for_issue(issue_type)
+        eligible, eligibility_message = evaluate_ticket_eligibility(issue_type, st.session_state.selected_case)
+        if eligible:
+            st.session_state.pending_complaint = {
+                "issue_type": issue_type,
+                "priority": priority,
+                "requires_image": bool(agent_decision.get("requires_image", issue_requires_image(issue_type))),
+                "agent_reason": agent_decision.get("reason", ""),
+                "summary": build_complaint_summary(question.strip(), answer, st.session_state.selected_case),
+            }
+            st.session_state.awaiting_image_for_pending = False
+            answer = (
+                f"{answer}\n\n"
+                "Would you like me to create a complaint ticket for this case?"
+            )
+        else:
+            answer = f"{answer}\n\nSupport note: {eligibility_message}"
 
     st.session_state.chat_history.append(
         {
@@ -543,6 +558,62 @@ def priority_for_issue(issue_type: str) -> str:
     return "Low"
 
 
+def evaluate_ticket_eligibility(issue_type: str, case: dict) -> tuple[bool, str]:
+    if not case:
+        return False, "Select a customer/order before creating a complaint ticket."
+
+    days = int(case.get("delivery_days_ago", 9999))
+    warranty_status = str(case.get("warranty_status", "")).lower()
+    issue_type = (issue_type or "general").lower()
+
+    if issue_type == "refund":
+        if days <= 14:
+            return True, "Refund ticket is allowed because the order is inside the 14 calendar day refund window."
+        return (
+            False,
+            f"Refund ticket is not created automatically because order {case['order_id']} was delivered "
+            f"{days} days ago, which is outside the 14 calendar day refund window.",
+        )
+
+    if issue_type in {"replacement", "technical"}:
+        if days <= 30:
+            return True, (
+                f"{issue_type.title()} ticket is allowed because the order is inside the "
+                "30 calendar day review window."
+            )
+        return (
+            False,
+            f"{issue_type.title()} ticket is not created automatically because order {case['order_id']} "
+            f"was delivered {days} days ago, which is outside the 30 calendar day review window. "
+            "This should be handled as a human review or warranty information case.",
+        )
+
+    if issue_type == "warranty":
+        if warranty_status == "active" and days <= 30:
+            return True, "Warranty ticket is allowed because warranty is active and the order is inside the review window."
+        if warranty_status == "active":
+            return (
+                False,
+                f"Warranty is active, but order {case['order_id']} was delivered {days} days ago. "
+                "Do not create an automatic ticket from warranty status alone; ask for a specific claim or route to human review.",
+            )
+        return False, "Warranty ticket is not created because warranty is not active."
+
+    if issue_type == "delivery":
+        if days <= 7:
+            return True, "Delivery ticket is allowed because the order is inside the 7 calendar day delivery issue window."
+        return (
+            False,
+            f"Delivery ticket is not created automatically because order {case['order_id']} was delivered "
+            f"{days} days ago, which is outside the 7 calendar day delivery issue window.",
+        )
+
+    if issue_type == "billing":
+        return True, "Billing ticket is allowed for payment or invoice review."
+
+    return False, "No automatic ticket is created for general or informational questions."
+
+
 def is_confirmation(message: str) -> bool:
     normalized = message.strip().lower()
     confirmations = {
@@ -571,12 +642,40 @@ def should_offer_complaint(answer: str, assistant_mode: str) -> bool:
         return False
 
     lowered = answer.lower()
+    active_issue_signals = [
+        "not working",
+        "not turning on",
+        "turning on",
+        "refund",
+        "return",
+        "replacement",
+        "replace",
+        "damaged",
+        "damage",
+        "defect",
+        "complaint",
+        "ticket",
+        "escalate",
+        "issue",
+        "problem",
+    ]
     positive_signals = [
         "eligible for review",
         "eligible to return",
+        "eligible for a return",
         "eligible for refund",
+        "eligible for a refund",
+        "eligible to request a refund",
+        "eligible to request refund",
         "within the 14",
+        "within 14",
+        "14 calendar days",
         "within the 30",
+        "within 30",
+        "30 calendar days",
+        "to proceed with the refund",
+        "proceed with the refund",
+        "start the return process",
         "escalate",
         "technical support",
     ]
@@ -586,9 +685,52 @@ def should_offer_complaint(answer: str, assistant_mode: str) -> bool:
         "outside the 30",
         "does not provide enough information",
     ]
-    return any(signal in lowered for signal in positive_signals) and not any(
-        signal in lowered for signal in negative_signals
-    )
+    if not any(signal in lowered for signal in active_issue_signals):
+        return False
+
+    return any(signal in lowered for signal in positive_signals) and not any(signal in lowered for signal in negative_signals)
+
+
+def question_requests_support_action(question: str) -> bool:
+    lowered = question.lower()
+    action_signals = [
+        "refund",
+        "return",
+        "replace",
+        "replacement",
+        "not working",
+        "not turning on",
+        "does not work",
+        "stopped working",
+        "broken",
+        "damaged",
+        "damage",
+        "defect",
+        "complaint",
+        "ticket",
+        "claim",
+        "raise",
+        "escalate",
+        "issue",
+        "problem",
+        "repair",
+        "fix",
+    ]
+    informational_warranty_signals = [
+        "warranty active",
+        "warranty status",
+        "under warranty",
+        "warranty period",
+        "what does warranty",
+        "what is warranty",
+        "is warranty",
+    ]
+
+    if any(signal in lowered for signal in action_signals):
+        return True
+    if "warranty" in lowered and any(signal in lowered for signal in informational_warranty_signals):
+        return False
+    return False
 
 
 def build_complaint_summary(question: str, answer: str, case: dict) -> str:
@@ -620,7 +762,7 @@ def handle_pending_complaint_confirmation(message: str) -> bool:
     if not is_confirmation(message):
         return False
 
-    if issue_requires_image(pending["issue_type"]) and not st.session_state.damage_report:
+    if pending_requires_image(pending) and not st.session_state.damage_report:
         st.session_state.awaiting_image_for_pending = True
         st.session_state.chat_history.append(
             {
@@ -652,7 +794,7 @@ def create_pending_complaint_from_image() -> None:
     if not pending:
         st.warning("No pending complaint is waiting for image proof.")
         return
-    if issue_requires_image(pending["issue_type"]) and not st.session_state.damage_report:
+    if pending_requires_image(pending) and not st.session_state.damage_report:
         st.warning("Upload and inspect a product image first.")
         return
 
@@ -671,6 +813,12 @@ def create_pending_complaint_from_image() -> None:
     )
     st.session_state.pending_complaint = None
     st.session_state.awaiting_image_for_pending = False
+
+
+def pending_requires_image(pending: dict) -> bool:
+    if not pending:
+        return False
+    return bool(pending.get("requires_image", issue_requires_image(pending["issue_type"])))
 
 
 def render_customer_lookup_sidebar() -> None:
@@ -1042,7 +1190,7 @@ def render_status_messages() -> None:
         return
 
     pending = st.session_state.pending_complaint
-    requires_image = issue_requires_image(pending["issue_type"])
+    requires_image = pending_requires_image(pending)
 
     if requires_image and st.session_state.awaiting_image_for_pending and not st.session_state.damage_report:
         st.warning(
