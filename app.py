@@ -60,7 +60,7 @@ ASSISTANT_PROMPTS = {
     "policy details. When the customer asks about refunds, use the refund policy section "
     "and do not substitute replacement, warranty, or shipping timelines. When customer "
     "database context is available, combine it with policy to explain eligibility. When a "
-    "complaint is being created or the case is escalated to technical support, tell the "
+    "ticket is being created or the case is escalated to technical support, tell the "
     "customer that technical support will contact them within 4 working days."
     ),
 }
@@ -126,6 +126,18 @@ def reset_pipeline_state() -> None:
     st.session_state.documents_loaded = False
     st.session_state.document_names = []
     st.session_state.auto_load_attempted = False
+
+
+def clear_uploaded_images() -> int:
+    if not UPLOAD_DIR.exists():
+        return 0
+
+    deleted = 0
+    for path in UPLOAD_DIR.iterdir():
+        if path.is_file():
+            path.unlink()
+            deleted += 1
+    return deleted
 
 
 def ensure_pipeline(api_key: str, model: str, use_local: bool, chunk_size: int, chunk_overlap: int) -> None:
@@ -263,14 +275,14 @@ def ask_question(question: str, top_k: int, assistant_mode: str) -> None:
             st.session_state.pending_complaint = {
                 "issue_type": issue_type,
                 "priority": priority,
-                "requires_image": bool(agent_decision.get("requires_image", issue_requires_image(issue_type))),
+                "requires_image": issue_requires_image(issue_type),
                 "agent_reason": agent_decision.get("reason", ""),
                 "summary": build_complaint_summary(question.strip(), answer, st.session_state.selected_case),
             }
             st.session_state.awaiting_image_for_pending = False
             answer = (
                 f"{answer}\n\n"
-                "Would you like me to create a complaint ticket for this case?"
+                "Would you like me to create a ticket for this request?"
             )
         else:
             answer = f"{answer}\n\nSupport note: {eligibility_message}"
@@ -309,7 +321,7 @@ def refresh_selected_case() -> None:
 def create_complaint(issue_type: str, priority: str, summary: str) -> None:
     case = st.session_state.selected_case
     if not case:
-        st.error("Select a customer/order before creating a complaint.")
+        st.error("Select a customer/order before creating a ticket.")
         return
 
     ticket = create_ticket(
@@ -332,9 +344,9 @@ def create_complaint(issue_type: str, priority: str, summary: str) -> None:
     refresh_selected_case()
     st.session_state.chat_history.append(
         {
-            "question": "Create complaint",
+            "question": "Create ticket",
             "answer": (
-                f"Complaint ticket {ticket['ticket_id']} created for order {case['order_id']}.\n\n"
+                f"Ticket {ticket['ticket_id']} created for order {case['order_id']}.\n\n"
                 f"Status: {ticket['status']}\n\n"
                 f"Priority: {ticket['priority']}\n\n"
                 f"Summary: {ticket['summary']}\n\n"
@@ -395,10 +407,10 @@ def inspect_uploaded_image(uploaded_file) -> None:
 
 
 def create_email_draft_for_ticket(ticket: dict, case: dict, issue_type: str) -> dict:
-    subject = f"Complaint {ticket['ticket_id']} created for order {case['order_id']}"
+    subject = f"Ticket {ticket['ticket_id']} created for order {case['order_id']}"
     body = (
         f"Hi {case['name']},\n\n"
-        f"We have created complaint ticket {ticket['ticket_id']} for your order "
+        f"We have created ticket {ticket['ticket_id']} for your order "
         f"{case['order_id']} ({case['product_name']}).\n\n"
         f"Issue type: {issue_type}\n"
         f"Priority: {ticket['priority']}\n"
@@ -445,10 +457,10 @@ def backfill_missing_email_drafts() -> None:
             customer_id=case["customer_id"],
             order_id=case["order_id"],
             recipient=case["email"],
-            subject=f"Complaint {ticket['ticket_id']} created for order {case['order_id']}",
+            subject=f"Ticket {ticket['ticket_id']} created for order {case['order_id']}",
             body=(
                 f"Hi {case['name']},\n\n"
-                f"We have created complaint ticket {ticket['ticket_id']} for your order "
+                f"We have created ticket {ticket['ticket_id']} for your order "
                 f"{case['order_id']} ({case['product_name']}).\n\n"
                 f"Issue type: {ticket['issue_type']}\n"
                 f"Priority: {ticket['priority']}\n"
@@ -560,10 +572,9 @@ def priority_for_issue(issue_type: str) -> str:
 
 def evaluate_ticket_eligibility(issue_type: str, case: dict) -> tuple[bool, str]:
     if not case:
-        return False, "Select a customer/order before creating a complaint ticket."
+        return False, "Select a customer/order before creating a ticket."
 
     days = int(case.get("delivery_days_ago", 9999))
-    warranty_status = str(case.get("warranty_status", "")).lower()
     issue_type = (issue_type or "general").lower()
 
     if issue_type == "refund":
@@ -585,19 +596,11 @@ def evaluate_ticket_eligibility(issue_type: str, case: dict) -> tuple[bool, str]
             False,
             f"{issue_type.title()} ticket is not created automatically because order {case['order_id']} "
             f"was delivered {days} days ago, which is outside the 30 calendar day review window. "
-            "This should be handled as a human review or warranty information case.",
+            "No automatic ticket is available for this request.",
         )
 
     if issue_type == "warranty":
-        if warranty_status == "active" and days <= 30:
-            return True, "Warranty ticket is allowed because warranty is active and the order is inside the review window."
-        if warranty_status == "active":
-            return (
-                False,
-                f"Warranty is active, but order {case['order_id']} was delivered {days} days ago. "
-                "Do not create an automatic ticket from warranty status alone; ask for a specific claim or route to human review.",
-            )
-        return False, "Warranty ticket is not created because warranty is not active."
+        return False, "Warranty questions are handled as informational answers. No automatic ticket is created."
 
     if issue_type == "delivery":
         if days <= 7:
@@ -655,6 +658,7 @@ def should_offer_complaint(answer: str, assistant_mode: str) -> bool:
         "defect",
         "complaint",
         "ticket",
+        "support case",
         "escalate",
         "issue",
         "problem",
@@ -678,6 +682,10 @@ def should_offer_complaint(answer: str, assistant_mode: str) -> bool:
         "start the return process",
         "escalate",
         "technical support",
+        "technical support case",
+        "open a technical support case",
+        "open a support case",
+        "support case",
     ]
     negative_signals = [
         "not eligible",
@@ -751,7 +759,7 @@ def handle_pending_complaint_confirmation(message: str) -> bool:
         st.session_state.chat_history.append(
             {
                 "question": message.strip(),
-                "answer": "No complaint ticket was created. I can still help with the next step if needed.",
+                "answer": "No ticket was created. I can still help with the next step if needed.",
                 "sources": [],
                 "mode": "Support Action",
                 "case": st.session_state.selected_case,
@@ -768,7 +776,7 @@ def handle_pending_complaint_confirmation(message: str) -> bool:
             {
                 "question": message.strip(),
                 "answer": (
-                    "Before I create the complaint ticket, please upload a product image. "
+                    "Before I create the ticket, please upload a product image. "
                     f"This {pending['issue_type']} case requires image proof. I will pass it to "
                     "the Damage Detection Agent for inspection, then you can confirm again."
                 ),
@@ -792,7 +800,7 @@ def handle_pending_complaint_confirmation(message: str) -> bool:
 def create_pending_complaint_from_image() -> None:
     pending = st.session_state.pending_complaint
     if not pending:
-        st.warning("No pending complaint is waiting for image proof.")
+        st.warning("No pending ticket is waiting for image proof.")
         return
     if pending_requires_image(pending) and not st.session_state.damage_report:
         st.warning("Upload and inspect a product image first.")
@@ -948,7 +956,7 @@ def render_operations_dashboard() -> None:
         if not tickets:
             st.caption("No tickets created yet.")
         else:
-            status_filter = st.radio("Ticket status", ["All", "Open", "Closed"], horizontal=True)
+            status_filter = st.radio("Case status", ["All", "Open", "Closed"], horizontal=True)
             filtered_tickets = tickets
             if status_filter != "All":
                 filtered_tickets = [
@@ -1165,7 +1173,7 @@ def render_image_detection_agent(key_prefix: str, expanded: bool = False) -> Non
             with st.expander("Full inspection response", expanded=True):
                 st.json(report)
             if st.session_state.pending_complaint:
-                if st.button("Create Complaint from Inspection", type="primary", key=f"{key_prefix}_create_from_image"):
+                if st.button("Create Ticket from Inspection", type="primary", key=f"{key_prefix}_create_from_image"):
                     create_pending_complaint_from_image()
                     st.rerun()
             if st.button("Clear image report", key=f"{key_prefix}_clear_image_report"):
@@ -1197,14 +1205,14 @@ def render_status_messages() -> None:
             f"Please upload a product image for inspection before creating this "
             f"{pending['issue_type']} ticket."
         )
-        if st.button("Cancel Complaint", use_container_width=True, key="customer_cancel_image_complaint"):
+        if st.button("Cancel Ticket", use_container_width=True, key="customer_cancel_image_complaint"):
             handle_pending_complaint_confirmation("no")
             st.session_state.question_input = ""
             st.rerun()
     elif requires_image and st.session_state.damage_report:
-        st.success("Image inspection is complete. Create the complaint ticket now?")
+        st.success("Image inspection is complete. Create the ticket now?")
         create_col, cancel_col = st.columns(2)
-        if create_col.button("Create Complaint", type="primary", use_container_width=True, key="customer_create_after_image"):
+        if create_col.button("Create Ticket", type="primary", use_container_width=True, key="customer_create_after_image"):
             create_pending_complaint_from_image()
             st.session_state.question_input = ""
             st.rerun()
@@ -1213,7 +1221,7 @@ def render_status_messages() -> None:
             st.session_state.question_input = ""
             st.rerun()
     else:
-        st.info(f"Create a {pending['issue_type']} complaint ticket with {pending['priority']} priority?")
+        st.info(f"Create a {pending['issue_type']} ticket with {pending['priority']} priority?")
         yes_col, no_col = st.columns(2)
         if yes_col.button("Yes, Create Ticket", type="primary", use_container_width=True, key="customer_yes_create"):
             handle_pending_complaint_confirmation("yes")
@@ -1335,6 +1343,7 @@ with st.sidebar:
         if st.session_state.rag_pipeline:
             st.session_state.rag_pipeline.clear()
         clear_support_activity()
+        clear_uploaded_images()
         st.session_state.chat_history = []
         st.session_state.documents_loaded = False
         st.session_state.document_names = []
